@@ -1,3 +1,4 @@
+from __future__ import division
 from PyQt4 import QtGui, QtCore
 from heka_reader import Bundle
 import pyqtgraph as pg
@@ -183,18 +184,51 @@ class OptionsView(QtGui.QWidget):
         super(OptionsView, self).__init__()
         self.frame = parent
 
-        # init buttons
+        # init inputs
         self.extract_spikes_toggle = QtGui.QCheckBox('Extract spikes')
         self.extract_spikes_toggle.setChecked(False)
 
         self.group_toggle = QtGui.QCheckBox('Group spikes')
         self.group_toggle.setChecked(False)
 
+        self.arg_type = QtGui.QComboBox()
+        self.arg_type.addItems(['max', 'min'])
+        self.arg_type_label = QtGui.QLabel('Center on window')
+
+        self.spike_edge = QtGui.QComboBox()
+        self.spike_edge.addItems(['rising', 'falling'])
+        self.spike_edge_label = QtGui.QLabel('Threshold edge')
+
+        self.spike_thresh = QtGui.QSpinBox()
+        self.spike_thresh.setKeyboardTracking(True)
+        self.spike_thresh.setRange(1, 10)  # ms
+        self.spike_thresh.setValue(2)
+        self.spike_thresh.setSingleStep(1)
+        self.spike_thresh_label = QtGui.QLabel('Spike thresh')
+
+        self.group_window = QtGui.QDoubleSpinBox()
+        self.group_window.setKeyboardTracking(False)
+        self.group_window.setRange(0.01, 1000)  # ms
+        self.group_window.setValue(2.5)
+        self.group_window.setSingleStep(2.5)
+        self.group_window_label = QtGui.QLabel('Group window (ms)')
+
         # layout and add
         layout = QtGui.QVBoxLayout()
+        grid_layout = QtGui.QGridLayout()
 
-        layout.addWidget(self.extract_spikes_toggle)
-        layout.addWidget(self.group_toggle)
+        grid_layout.addWidget(self.extract_spikes_toggle, 0, 0, 1, 2)
+        grid_layout.addWidget(self.group_toggle, 1, 0, 1, 2)
+        grid_layout.addWidget(self.arg_type_label, 2, 0, 1, 1)
+        grid_layout.addWidget(self.arg_type, 2, 1, 1, 1)
+        grid_layout.addWidget(self.spike_edge_label, 3, 0, 1, 1)
+        grid_layout.addWidget(self.spike_edge, 3, 1, 1, 1)
+        grid_layout.addWidget(self.spike_thresh_label, 4, 0, 1, 1)
+        grid_layout.addWidget(self.spike_thresh, 4, 1, 1, 1)
+        grid_layout.addWidget(self.group_window_label, 5, 0, 1, 1)
+        grid_layout.addWidget(self.group_window, 5, 1, 1, 1)
+
+        layout.addLayout(grid_layout)
         layout.addStretch(1)
 
         self.setLayout(layout)
@@ -202,6 +236,10 @@ class OptionsView(QtGui.QWidget):
         # event binders
         self.extract_spikes_toggle.toggled.connect(self.on_extract_spikes_toggle)
         self.group_toggle.toggled.connect(self.on_group_button)
+        self.arg_type.currentIndexChanged.connect(self.arg_type_changed)
+        self.spike_edge.currentIndexChanged.connect(self.spike_edge_changed)
+        self.spike_thresh.valueChanged.connect(self.on_spike_thresh_changed)
+        self.group_window.valueChanged.connect(self.on_group_window_changed)
 
     def on_extract_spikes_toggle(self, state):
         """
@@ -228,6 +266,42 @@ class OptionsView(QtGui.QWidget):
         """
         self.frame.toggle_grouping(state)
 
+    def on_group_window_changed(self, value):
+        """
+        Toggle grouping of spikes.
+        :param value:
+        :return:
+        """
+        self.frame.update_group_window(value)
+
+    def on_spike_thresh_changed(self, value):
+        """
+        Toggle grouping of spikes.
+        :param value:
+        :return:
+        """
+        self.frame.update_spike_threshold(value)
+
+    def arg_type_changed(self, index):
+        """
+        Toggle grouping of spikes.
+        :param value:
+        :return:
+        """
+        options = ['max', 'min']
+
+        self.frame.update_arg_type(options[index])
+
+    def spike_edge_changed(self, index):
+        """
+        Toggle grouping of spikes.
+        :param value:
+        :return:
+        """
+        options = ['rising', 'falling']
+
+        self.frame.update_spike_edge(options[index])
+
 
 class PlotView(pg.PlotWidget):
     """
@@ -239,6 +313,10 @@ class PlotView(pg.PlotWidget):
         self.legend = None
         self.index = None
         self.group = False
+        self.group_window = 2.5  # ms
+        self.spike_thresh = str(2)
+        self.arg_type = 'max'
+        self.spike_edge = 'rising'
 
     def plot_trace(self, data, x_interval, y_label='Record',
                    y_units='A', clear=True):
@@ -259,7 +337,8 @@ class PlotView(pg.PlotWidget):
                                          retstep=True)
 
         # double check interval
-        assert check == x_interval
+        print check, x_interval, int(x_interval*len(data)), len(data)
+        # assert check == x_interval
 
         if clear:
             self.clear()
@@ -269,7 +348,7 @@ class PlotView(pg.PlotWidget):
                        left=(y_label, y_units))
 
     def plot_spikes(self, data, x_interval, y_label='Record',
-                    y_units='A'):
+                    y_units='A', force_update=False):
         """
         Plots spikes.
         :param data:
@@ -279,7 +358,7 @@ class PlotView(pg.PlotWidget):
         :param group:
         :return:
         """
-        if self.index == self.frame.pul_view.index:
+        if not force_update and self.index == self.frame.pul_view.index:
             return
 
         self.index = self.frame.pul_view.index
@@ -291,7 +370,9 @@ class PlotView(pg.PlotWidget):
             'FS'  : int(round(1./x_interval)),
             'n_contacts': 1
         }
-        spt = spike_sort.core.extract.detect_spikes(raw, thresh='2')
+        spt = spike_sort.core.extract.detect_spikes(raw,
+                                                    thresh=self.spike_thresh,
+                                                    edge=self.spike_edge)
 
         if len(spt['data']) == 0:
             if self.legend is not None:
@@ -304,7 +385,7 @@ class PlotView(pg.PlotWidget):
             assert len(group) == len(spt['data'])
 
         # 2.5 ms window
-        ms = 2.5/1000
+        ms = self.group_window/1000
         half_window = int(ms / x_interval)
         spike_indices = []
 
@@ -322,8 +403,8 @@ class PlotView(pg.PlotWidget):
                                                 endpoint=False,
                                                 num=half_window*2,
                                                 retstep=True)
-        print check, x_interval, half_window
-        assert check == x_interval
+        print check, x_interval, half_window, len(data)
+        # assert check == x_interval
 
         # refine peak detection
         for index, time in enumerate(tqdm(spt['data'])):
@@ -331,8 +412,14 @@ class PlotView(pg.PlotWidget):
             ar_index = int(time/1000*raw['FS'])
             # make window around guess
             window = data[ar_index-half_window:ar_index+half_window]
-            # get index of local maximum
-            peak_index = np.argmax(window) + ar_index - half_window
+
+            if self.arg_type == 'max':
+                # get index of local maximum
+                peak_index = np.argmax(window) + ar_index - half_window
+            elif self.arg_type == 'min':
+                # get index of local minimum
+                peak_index = np.argmin(window) + ar_index - half_window
+
             # add to list
             spike_indices.append(peak_index)
 
@@ -488,7 +575,7 @@ class Frame(QtGui.QWidget):
             if self.spike_view.isVisible():
                 self.update_spike_plot()
 
-    def update_spike_plot(self):
+    def update_spike_plot(self, force_update=False):
         """
         Makes call to update spike plot.
         :param data:
@@ -503,7 +590,8 @@ class Frame(QtGui.QWidget):
             num_spikes = self.spike_view.plot_spikes(data,
                                                      x_interval,
                                                      y_label,
-                                                     y_units)
+                                                     y_units,
+                                                     force_update=force_update)
             # print num_spikes
 
     def toggle_grouping(self, state):
@@ -514,7 +602,47 @@ class Frame(QtGui.QWidget):
         """
         self.spike_view.group = state
         if self.spike_view.isVisible():
-            self.update_spike_plot()
+            self.update_spike_plot(force_update=True)
+
+    def update_group_window(self, value):
+        """
+        Updates group window value
+        :param value:
+        :return:
+        """
+        self.spike_view.group_window = float(value)
+        if self.spike_view.isVisible():
+            self.update_spike_plot(force_update=True)
+
+    def update_spike_threshold(self, value):
+        """
+        Updates group window value
+        :param value:
+        :return:
+        """
+        self.spike_view.spike_thresh = str(value)
+        if self.spike_view.isVisible():
+            self.update_spike_plot(force_update=True)
+
+    def update_arg_type(self, value):
+        """
+        Updates group window value
+        :param value:
+        :return:
+        """
+        self.spike_view.arg_type = value
+        if self.spike_view.isVisible():
+            self.update_spike_plot(force_update=True)
+
+    def update_spike_edge(self, value):
+        """
+        Updates group window value
+        :param value:
+        :return:
+        """
+        self.spike_view.spike_edge = value
+        if self.spike_view.isVisible():
+            self.update_spike_plot(force_update=True)
 
 
 if __name__ == '__main__':
