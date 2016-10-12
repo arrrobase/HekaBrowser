@@ -1,3 +1,7 @@
+"""
+Wave browser for inspecting heka .dat recordings.
+"""
+
 from __future__ import division
 from PyQt4 import QtGui, QtCore
 from heka_reader import Bundle
