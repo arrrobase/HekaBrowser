@@ -80,7 +80,10 @@ class PulView(QtGui.QTreeWidget):
         self.dat_file = None
         self.bundle = None
         self.pul = None
-        self.index = None
+        self.indices = None
+
+        # allow multi selection
+        self.setSelectionMode(QtGui.QAbstractItemView.ExtendedSelection)
 
         # bind event
         self.itemSelectionChanged.connect(self.on_selection_changed)
@@ -145,18 +148,24 @@ class PulView(QtGui.QTreeWidget):
         Gets information for plotting.
         :return:
         """
-        if self.index is not None:
-            data = self.bundle.data[self.index]
+        if self.indices is not None:
 
-            pul = self.pul[self.index[0]][self.index[1]][self.index[2]][self.index[3]]
-            y_label = pul.Label
-            y_units = pul.YUnit
-            x_interval = pul.XInterval
+            ret = []
 
-            return data, x_interval, y_label, y_units
+            for trace in self.indices:
+                data = self.bundle.data[trace]
+
+                pul = self.pul[trace[0]][trace[1]][trace[2]][trace[3]]
+                y_label = pul.Label
+                y_units = pul.YUnit
+                x_interval = pul.XInterval
+
+                ret.append((data, x_interval, y_label, y_units))
+
+            return ret
 
         else:
-            return None, None, None, None
+            return [(None, None, None, None)]
 
 
     @QtCore.pyqtSlot(QtCore.QModelIndex)
@@ -165,13 +174,20 @@ class PulView(QtGui.QTreeWidget):
         Event for browsing through wave traces
         :return:
         """
-        selected = self.currentItem()
-        index = selected.index
+        selected = self.selectedItems()
+        indices = []
 
-        if len(index) != 4:
+        for item in selected:
+            index = item.index
+            if len(index) == 4:
+                indices.append(index)
+
+        if len(indices) == 0:
             return
 
-        self.index = index
+        print indices
+
+        self.indices = indices
 
         self.frame.update_trace_plot()
 
@@ -311,15 +327,14 @@ class PlotView(pg.PlotWidget):
         super(PlotView, self).__init__()
         self.frame = parent
         self.legend = None
-        self.index = None
+        self.indices = None
         self.group = False
         self.group_window = 2.5  # ms
         self.spike_thresh = str(2)
         self.arg_type = 'max'
         self.spike_edge = 'rising'
 
-    def plot_trace(self, data, x_interval, y_label='Record',
-                   y_units='A', clear=True):
+    def plot_trace(self, params, clear=True):
         """
         Updates plot.
         :param data:
@@ -329,26 +344,36 @@ class PlotView(pg.PlotWidget):
         :param clear:
         :return:
         """
-        # make time series
-        time_series, check = np.linspace(0,
-                                         int(x_interval*len(data)),
-                                         endpoint=False,
-                                         num=len(data),
-                                         retstep=True)
-
-        # double check interval
-        print check, x_interval, int(x_interval*len(data)), len(data)
-        # assert check == x_interval
-
         if clear:
             self.clear()
 
-        self.plot(time_series, data)
-        self.setLabels(bottom=('Time', 's'),
-                       left=(y_label, y_units))
+        x_interval = params[0][1]
+        len_data = len(params[0][0])
 
-    def plot_spikes(self, data, x_interval, y_label='Record',
-                    y_units='A', force_update=False):
+        # make time series
+        time_series, check = np.linspace(0,
+                                         int(x_interval*len_data),
+                                         endpoint=False,
+                                         num=len_data,
+                                         retstep=True)
+
+        for trace in params:
+            data = trace[0]
+
+            # double check interval
+            print check, x_interval, int(x_interval*len_data), len_data
+            # assert check == x_interval
+
+            self.plot(time_series, data)
+
+        self.setLabels(bottom=('Time', 's'))
+
+        if len(params) == 1:
+            y_label = params[0][2]
+            y_units = params[0][3]
+            self.setLabels(left=(y_label, y_units))
+
+    def plot_spikes(self, params, force_update=False):
         """
         Plots spikes.
         :param data:
@@ -358,42 +383,20 @@ class PlotView(pg.PlotWidget):
         :param group:
         :return:
         """
-        if not force_update and self.index == self.frame.pul_view.index:
+        self.disableAutoRange()
+
+        if not force_update and self.indices == self.frame.pul_view.indices:
             return
 
-        self.index = self.frame.pul_view.index
+        self.indices = self.frame.pul_view.indices
         self.clear()
 
-        # get approximate spike times from spike_sort
-        raw = {
-            'data': np.array([data]),
-            'FS'  : int(round(1./x_interval)),
-            'n_contacts': 1
-        }
-        spt = spike_sort.core.extract.detect_spikes(raw,
-                                                    thresh=self.spike_thresh,
-                                                    edge=self.spike_edge)
-
-        if len(spt['data']) == 0:
-            if self.legend is not None:
-                self.legend.scene().removeItem(self.legend)
-                self.legend = None
-            return 0
-
-        if self.group:
-            group = self.group_spikes(raw, spt, num_groups=2)
-            assert len(group) == len(spt['data'])
+        x_interval = params[0][1]
+        len_data = len(params[0][0])
 
         # 2.5 ms window
         ms = self.group_window/1000
         half_window = int(ms / x_interval)
-        spike_indices = []
-
-        if self.group:
-            running_total = np.zeros((max(group)+1, half_window*2),
-                                     np.float64)
-        else:
-            running_total = np.zeros((half_window*2), np.float64)
 
         if half_window % 2 == 0:
             ms -= x_interval
@@ -403,65 +406,101 @@ class PlotView(pg.PlotWidget):
                                                 endpoint=False,
                                                 num=half_window*2,
                                                 retstep=True)
-        print check, x_interval, half_window, len(data)
+        print check, x_interval, half_window, len_data
         # assert check == x_interval
 
-        # refine peak detection
-        for index, time in enumerate(tqdm(spt['data'])):
-            # turn time to index
-            ar_index = int(time/1000*raw['FS'])
-            # make window around guess
-            window = data[ar_index-half_window:ar_index+half_window]
+        for trace in params:
+            data = trace[0]
+            # get approximate spike times from spike_sort
+            raw = {
+                'data': np.array([data]),
+                'FS'  : int(round(1./x_interval)),
+                'n_contacts': 1
+            }
+            spt = spike_sort.core.extract.detect_spikes(raw,
+                                                        thresh=self.spike_thresh,
+                                                        edge=self.spike_edge)
 
-            if self.arg_type == 'max':
-                # get index of local maximum
-                peak_index = np.argmax(window) + ar_index - half_window
-            elif self.arg_type == 'min':
-                # get index of local minimum
-                peak_index = np.argmin(window) + ar_index - half_window
-
-            # add to list
-            spike_indices.append(peak_index)
-
-            # PLOT
-            # adjust window
-            window = data[peak_index-half_window:peak_index+half_window]
+            if len(spt['data']) == 0:
+                if self.legend is not None:
+                    self.legend.scene().removeItem(self.legend)
+                    self.legend = None
+                continue
 
             if self.group:
-                group_ind = int(group[index])
+                group = self.group_spikes(raw, spt, num_groups=2)
+                assert len(group) == len(spt['data'])
 
-                red = pg.mkPen(group_ind).color().red()
-                blue = pg.mkPen(group_ind).color().blue()
-                green = pg.mkPen(group_ind).color().green()
-
-                self.plot(window_time_series, window,
-                          pen=pg.mkPen(red, blue, green, 40))
-                running_total[group_ind] += window
-
+                running_total = np.zeros((max(group)+1, half_window*2),
+                                         np.float64)
             else:
-                self.plot(window_time_series, window, pen=pg.mkPen(200, 200, 200, 26))
-                running_total += window
+                running_total = np.zeros((half_window*2), np.float64)
 
-        if self.legend is not None:
-            self.legend.scene().removeItem(self.legend)
-        self.legend = self.addLegend()
+            spike_indices = []
 
-        if self.group:
-            for index, run in enumerate(running_total):
-                run /= list(group).count(index)
-                self.plot(window_time_series, run,
-                          pen=pg.mkPen(255, 255, 255, 255))
-        else:
-            running_total /= len(spike_indices)
-            self.plot(window_time_series, running_total,
-                      pen=pg.mkPen(255, 255, 255, 255),
-                      name='Average (n={})'.format(len(spike_indices))
-                      )
+            # refine peak detection
+            for index, time in enumerate(tqdm(spt['data'])):
+                # turn time to index
+                ar_index = int(time/1000*raw['FS'])
+                # make window around guess
+                # print ar_index, half_window
+                window = data[ar_index-half_window:ar_index+half_window]
 
-        self.setLabels(bottom=('Time', 's'),
-                       left=(y_label, y_units))
+                if self.arg_type == 'max':
+                    # get index of local maximum
+                    peak_index = np.argmax(window) + ar_index - half_window
+                elif self.arg_type == 'min':
+                    # get index of local minimum
+                    peak_index = np.argmin(window) + ar_index - half_window
 
-        return len(spike_indices)
+                # add to list
+                spike_indices.append(peak_index)
+
+                # PLOT
+                # adjust window
+                window = data[peak_index-half_window:peak_index+half_window]
+
+                if self.group:
+                    group_ind = int(group[index])
+
+                    red = pg.mkPen(group_ind).color().red()
+                    blue = pg.mkPen(group_ind).color().blue()
+                    green = pg.mkPen(group_ind).color().green()
+
+                    self.plot(window_time_series, window,
+                              pen=pg.mkPen(red, blue, green, 40))
+                    running_total[group_ind] += window
+
+                else:
+                    self.plot(window_time_series, window, pen=pg.mkPen(200, 200, 200, 26))
+                    running_total += window
+
+            if self.legend is not None:
+                self.legend.scene().removeItem(self.legend)
+            self.legend = self.addLegend()
+
+            self.enableAutoRange()
+
+            if self.group:
+                for index, run in enumerate(running_total):
+                    run /= list(group).count(index)
+                    self.plot(window_time_series, run,
+                              pen=pg.mkPen(255, 255, 255, 255))
+            else:
+                running_total /= len(spike_indices)
+                self.plot(window_time_series, running_total,
+                          pen=pg.mkPen(255, 255, 255, 255),
+                          name='Average (n={})'.format(len(spike_indices))
+                          )
+
+        self.setLabels(bottom=('Time', 's'))
+
+        if len(params) == 1:
+            y_label = params[0][2]
+            y_units = params[0][3]
+            self.setLabels(left=(y_label, y_units))
+
+        # return len(spike_indices)
 
     def group_spikes(self, raw, spt, num_groups=2):
         """
@@ -527,13 +566,14 @@ class Frame(QtGui.QWidget):
         tree_splitter.addWidget(self.tab_view)
         tree_splitter.addWidget(self.pul_view)
 
+        tree_splitter.setStretchFactor(1, 2)
+
         # splitter for plots
         plot_splitter = QtGui.QSplitter(QtCore.Qt.Vertical)
         plot_splitter.addWidget(self.spike_view)
         plot_splitter.addWidget(self.trace_view)
         # hide spike view until needed
         self.spike_view.hide()
-
 
         # horizontal splitter
         frame_splitter = QtGui.QSplitter(QtCore.Qt.Horizontal)
@@ -558,19 +598,12 @@ class Frame(QtGui.QWidget):
     def update_trace_plot(self):
         """
         Makes call to update trace plot.
-        :param data:
-        :param x_interval:
-        :param y_label:
-        :param y_units:
         :return:
         """
-        data, x_interval, y_label, y_units = self.pul_view.get_plot_params()
+        params = self.pul_view.get_plot_params()
 
-        if data is not None:
-            self.trace_view.plot_trace(data,
-                                       x_interval,
-                                       y_label,
-                                       y_units)
+        if params[0][0] is not None:
+            self.trace_view.plot_trace(params)
 
             if self.spike_view.isVisible():
                 self.update_spike_plot()
@@ -584,13 +617,10 @@ class Frame(QtGui.QWidget):
         :param y_units:
         :return:
         """
-        data, x_interval, y_label, y_units = self.pul_view.get_plot_params()
+        params = self.pul_view.get_plot_params()
 
-        if data is not None:
-            num_spikes = self.spike_view.plot_spikes(data,
-                                                     x_interval,
-                                                     y_label,
-                                                     y_units,
+        if params[0][0] is not None:
+            num_spikes = self.spike_view.plot_spikes(params,
                                                      force_update=force_update)
             # print num_spikes
 

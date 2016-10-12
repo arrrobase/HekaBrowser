@@ -14,4 +14,4 @@ Licensed under GNU GPL v3.0.
 Screen Shots
 ------------
 
-Forthcoming.
+In ./docs/screenshots folder.

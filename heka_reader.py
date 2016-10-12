@@ -3,6 +3,7 @@ Luke Campagnola 2015 luke_campagnola@gmail.com
 https://github.com/campagnola/heka_reader
 
 A couple small changes in Bundle class by Alexander Tomlinson 2016
+Allows for non-bundled files to be read
 alex.wc.tomlinson@gmail.com
 https://github.com/awctomlinson/heka_browser
 
