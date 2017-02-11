@@ -7,7 +7,7 @@ from PyQt4 import QtGui, QtCore
 from heka_reader import Bundle
 import pyqtgraph as pg
 import numpy as np
-import spike_sort
+# import spike_sort
 from tqdm import tqdm
 import os
 
@@ -189,7 +189,7 @@ class PulView(QtGui.QTreeWidget):
         if len(indices) == 0:
             return
 
-        print indices
+        print(indices)
 
         self.indices = indices
 
@@ -365,7 +365,7 @@ class PlotView(pg.PlotWidget):
             data = trace[0]
 
             # double check interval
-            print check, x_interval, int(x_interval*len_data), len_data
+            print(check, x_interval, int(x_interval*len_data), len_data)
             # assert check == x_interval
 
             self.plot(time_series, data)
