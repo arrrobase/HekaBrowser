@@ -10,6 +10,7 @@ from matplotlib.backends.backend_wx import NavigationToolbar2Wx
 from matplotlib.figure import Figure
 
 import wx
+import numpy as np
 
 from ds_tool import get_ds
 
@@ -36,6 +37,10 @@ class DirPanel(wx.Panel):
 
         self.single_series_ctrl = wx.CheckBox(self, label='Single series')
         self.single_series_ctrl.SetValue(True)
+
+        self.single_trace_ctrl = wx.CheckBox(self, label='Single trace')
+        self.single_trace_ctrl.SetValue(True)
+
         self.triggered_ctrl = wx.CheckBox(self, label='Triggered')
         self.stack_ctrl = wx.CheckBox(self, label='Stack plots')
 
@@ -49,9 +54,10 @@ class DirPanel(wx.Panel):
         dirs_sizer.Add(num_dirs_ctrl, pos=(1, 1), border=0, flag=wx.TOP | wx.BOTTOM)
 
         dirs_sizer.Add(self.single_series_ctrl, pos=(2, 0), border=4, flag=wx.TOP | wx.BOTTOM)
-        dirs_sizer.Add(self.triggered_ctrl, pos=(2, 1), border=4, flag=wx.TOP | wx.BOTTOM)
+        dirs_sizer.Add(self.single_trace_ctrl, pos=(2, 1), border=4, flag=wx.TOP | wx.BOTTOM)
 
         dirs_sizer.Add(self.stack_ctrl, pos=(3, 0), border=4, flag=wx.TOP | wx.BOTTOM)
+        dirs_sizer.Add(self.triggered_ctrl, pos=(3, 1), border=4, flag=wx.TOP | wx.BOTTOM)
 
         # tracker for current "same" node location
         self.sames = [0, 0, 0]
@@ -166,6 +172,10 @@ class DirPanel(wx.Panel):
             for row in self.chooser_ctrls:
                 row[0].SetValue(value)
 
+        if self.single_trace_ctrl.GetValue() and tag == 2:
+            for row in self.chooser_ctrls:
+                row[2].SetValue(value)
+
     def get_nodes(self):
         """
         Makes list of nodes from controls.
@@ -243,12 +253,31 @@ class CalculatePanel(wx.Panel):
 
         plt_1, plt_2, plt_3, pref_dir_degrees = get_ds(dat_path, dirs, nodes, triggered=triggered)
 
-        self.pref_dir_text.SetLabel(str(pref_dir_degrees)+u'\u00b0')
+        pref_string = '{0:.3f}'.format(pref_dir_degrees) + u'\u00b0'
+        # self.pref_dir_text.SetLabel(pref_string)
 
         self.frame.frame_sizer.Fit(self.frame)
         self.frame.Refresh()
 
         self.frame.plot_panel.draw(plt_1, plt_2, plt_3)
+
+        # get DSI (Direction Selectivity Index)
+        directions, num_spikes = plt_2
+        ar_dir = np.array(directions, dtype=np.float)
+        ar_resp = np.array(num_spikes, dtype=np.float)
+
+        resp_max = np.max(ar_resp)
+
+        resp_x = ar_resp * np.cos(ar_dir) / resp_max
+        resp_y = ar_resp * np.sin(ar_dir) / resp_max
+
+        vec_sum_x = np.sum(resp_x)
+        vec_sum_y = np.sum(resp_y)
+
+        # normalized vector sum length (i.e. DSI)
+        nvsl = np.sqrt(vec_sum_x**2 + vec_sum_y**2) / np.sum(ar_resp / resp_max)
+        pref_string += '   DSI: {0:.2f}'.format(nvsl)
+        self.pref_dir_text.SetLabel(pref_string)
 
 
 class PlotPanel(wx.Panel):
@@ -289,6 +318,7 @@ class PlotPanel(wx.Panel):
         self.axes.plot(pref_dir, pref_fit, '-r')
 
         self.canvas.draw()
+
 
 class Frame(wx.Frame):
     """
