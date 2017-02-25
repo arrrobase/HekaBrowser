@@ -77,7 +77,7 @@ def get_ds(dat_path, directions, nodes, direction='falling', triggered=False):
         # get index of trigger spikes
         traces = [data[[a, b, c, 2]] for a, b, c, d in nodes]
         spike_indices = [get_spike_indices(trace, 'rising', 15) for trace in traces]
-        onsets = [spike_index[-2] for spike_index in spike_indices]
+        onsets = [spike_index[-1] for spike_index in spike_indices]
         # ends = [spike_index[-1] for spike_index in spike_indices]
 
 

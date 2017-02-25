@@ -253,15 +253,14 @@ class CalculatePanel(wx.Panel):
 
         plt_1, plt_2, plt_3, pref_dir_degrees = get_ds(dat_path, dirs, nodes, triggered=triggered)
 
-        pref_string = '{0:.3f}'.format(pref_dir_degrees) + u'\u00b0'
-        # self.pref_dir_text.SetLabel(pref_string)
+        pref_string = '{0:.3f}'.format(pref_dir_degrees) + u'\u00b0'  # degree symbol
 
         self.frame.frame_sizer.Fit(self.frame)
         self.frame.Refresh()
 
         self.frame.plot_panel.draw(plt_1, plt_2, plt_3)
 
-        # get DSI (Direction Selectivity Index)
+        # get DSI (Direction Selectivity Index) as normalized vector sum
         directions, num_spikes = plt_2
         ar_dir = np.array(directions, dtype=np.float)
         ar_resp = np.array(num_spikes, dtype=np.float)
@@ -276,8 +275,12 @@ class CalculatePanel(wx.Panel):
 
         # normalized vector sum length (i.e. DSI)
         nvsl = np.sqrt(vec_sum_x**2 + vec_sum_y**2) / np.sum(ar_resp / resp_max)
-        pref_string += '   DSI: {0:.2f}'.format(nvsl)
+        pref_string += '   NVSL: {0:.2f}'.format(nvsl)
         self.pref_dir_text.SetLabel(pref_string)
+
+        # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4123790/
+        # 1 - DirCirVar
+        l_dir = abs(np.sum(ar_resp * np.exp(1j * ar_dir)) / np.sum(ar_resp))
 
 
 class PlotPanel(wx.Panel):
