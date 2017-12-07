@@ -618,8 +618,9 @@ class Data(object):
         assert len(index) == 4
         pul = self.bundle.pul
         trace = pul[index[0]][index[1]][index[2]][index[3]]
-        file_name = self.bundle.catalog['.dat']
-        fh = open(file_name, 'rb')
+        # file_name = self.bundle.catalog['.dat']
+        # fh = open(file_name, 'rb')
+        fh = open(self.bundle.file_name, 'rb')
         fh.seek(trace.Data)
         fmt = bytearray(trace.DataFormat)[0]
         dtype = [np.int16, np.int32, np.float16, np.float32][fmt]
@@ -643,27 +644,30 @@ class Bundle(object):
         self.header = BundleHeader(fh, endian)
 
         # If the header is bad, re-read using big endian
-        if self.header.IsLittleEndian[0] == b'\0':
+        is_little_endian = self.header.IsLittleEndian[0] == b'\0'
+        if is_little_endian:
             endian = '>'
             fh.seek(0)
             self.header = BundleHeader(fh, endian)
+
+        print is_little_endian
 
         # Read bundle items
         #self.bundle_items = [Struct(fh, endian + bundle_item[0], bundle_item[1]) for i in range(12)]
 
         # catalog extensions of bundled items
         self.catalog = {}
-        # for item in self.header.BundleItems:
-        #     item.instance = None
-        #     ext = item.Extension
-        #     self.catalog[ext] = item
+        for item in self.header.BundleItems:
+            item.instance = None
+            ext = item.Extension
+            self.catalog[ext] = item
 
         # for files in os.listdir(os.path.dirname(os.path.abspath(self.file_name))):
         #     ext = files[-4:]
         #     path = '.\\data\\' + files[:-4] + '\\'
         #     self.catalog[ext] = os.path.abspath(path+files)
-        self.catalog['.dat'] = self.file_name
-        self.catalog['.pul'] = self.file_name[:-3]+'pul'
+        # self.catalog['.dat'] = self.file_name
+        # self.catalog['.pul'] = self.file_name[:-3]+'pul'
 
         fh.close()
 
@@ -680,25 +684,25 @@ class Bundle(object):
         return self._get_item_instance('.dat')
 
     def _get_item_instance(self, ext):
-        # if ext not in self.catalog:
-        #     return None
-        # item = self.catalog[ext]
-        # if item.instance is None:
-        #     cls = self.item_classes[ext]
-        #     item.instance = cls(self, item.Start, item.Length)
-        # return item.instance
-
         if ext not in self.catalog:
             return None
+        item = self.catalog[ext]
+        if item.instance is None:
+            cls = self.item_classes[ext]
+            item.instance = cls(self, item.Start, item.Length)
+        return item.instance
 
-        path = self.catalog[ext]
-
-        cls = self.item_classes[ext]
-
-        self.file_name = path
-        instance = cls(self, 0, None)
-
-        return instance
+        # if ext not in self.catalog:
+        #     return None
+        #
+        # path = self.catalog[ext]
+        #
+        # cls = self.item_classes[ext]
+        #
+        # self.file_name = path
+        # instance = cls(self, 0, None)
+        #
+        # return instance
 
     def __repr__(self):
         return "Bundle(%r)" % list(self.catalog.keys())
