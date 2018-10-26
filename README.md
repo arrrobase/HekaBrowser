@@ -14,4 +14,6 @@ Licensed under GNU GPL v3.0.
 Screen Shots
 ------------
 
-In ./docs/screenshots folder.
+![screenshot]
+
+  [screenshot]: https://raw.githubusercontent.com/awctomlinson/HekaBrowser/master/docs/screenshots/zoom.PNG
